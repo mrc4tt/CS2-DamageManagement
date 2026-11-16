@@ -22,8 +22,8 @@ namespace DamageManagement
     {
         public override string ModuleName => "CS2-DamageManagement";
 
-        public override string ModuleVersion => "1.1";
-        public override string ModuleAuthor => "HoanNK";
+        public override string ModuleVersion => "1.2";
+        public override string ModuleAuthor => "HoanNK (forked by Miksen)";
         public Config Config { get; set; } = new();
         bool enabled { get; set; }
         static bool isSlayCommand { get; set; }
