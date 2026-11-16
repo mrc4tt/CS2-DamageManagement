@@ -22,12 +22,7 @@ namespace DamageManagement.API
         }
         public bool IsNeedCallOriginalMethod()
         {
-            foreach (var handler in _handler)
-            {
-                bool CallOriginalMethod = handler.Invoke();
-                return CallOriginalMethod;
-            } 
-            return false;
+            return _handler.Any(handler => handler());
         }
     }
 }

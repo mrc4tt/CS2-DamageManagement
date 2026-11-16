@@ -4,8 +4,6 @@ using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Core.Capabilities;
 using CounterStrikeSharp.API.Modules.Admin;
 using CounterStrikeSharp.API.Modules.Commands;
-using CounterStrikeSharp.API.Modules.Memory;
-using CounterStrikeSharp.API.Modules.Memory.DynamicFunctions;
 using DamageManagement.API;
 using Microsoft.Extensions.Logging;
 using System.Text.Json.Serialization;
@@ -26,7 +24,7 @@ namespace DamageManagement
 
         public override string ModuleVersion => "1.1";
         public override string ModuleAuthor => "HoanNK";
-        public Config Config { get; set; }
+        public Config Config { get; set; } = new();
         bool enabled { get; set; }
         static bool isSlayCommand { get; set; }
         //This contains all designer name of the weapon class that allow to be taken damage to the teammates
@@ -34,7 +32,7 @@ namespace DamageManagement
         string[] enableDmgInflictors = [];
 
         //Shared API
-        public DamageManagementAPI managementAPI { get; set; }
+        public DamageManagementAPI managementAPI { get; set; } = new();
         private static PluginCapability<IDamageManagementAPI> DamageManagemenCapability { get; } = new("damagemanagement:api");   
 
         public override void Load(bool hotReload)
@@ -44,7 +42,7 @@ namespace DamageManagement
             managementAPI = new DamageManagementAPI();
             Capabilities.RegisterPluginCapability(DamageManagemenCapability, () => managementAPI);
 
-            VirtualFunctions.CBaseEntity_TakeDamageOldFunc.Hook(OnTakeDamage, HookMode.Pre);
+            RegisterListener<Listeners.OnPlayerTakeDamagePre>(OnPlayerTakeDamagePre);
         }
 
         public void OnConfigParsed(Config config)
@@ -61,47 +59,46 @@ namespace DamageManagement
         public override void Unload(bool hotReload)
         {
             Logger.LogInformation("Unloading plugin");
-            VirtualFunctions.CBaseEntity_TakeDamageOldFunc.Unhook(OnTakeDamage, HookMode.Pre);
+            RemoveListener<Listeners.OnPlayerTakeDamagePre>(OnPlayerTakeDamagePre);
         }
 
-        private HookResult OnTakeDamage(DynamicHook hook)
+        private HookResult OnPlayerTakeDamagePre(CCSPlayerPawn victim, CTakeDamageInfo damageInfo)
         {
             //Check handle for API first
-            var ExecuteOriginalMethod = managementAPI.IsNeedCallOriginalMethod();
             //it will allow consumer determine execute original method or not
-            if (ExecuteOriginalMethod)
+            if (managementAPI.IsNeedCallOriginalMethod() || !enabled)
             {
                 return HookResult.Continue;
             }
-            if (enabled)
+
+            try
             {
-                try
+                if (victim == null || !victim.IsValid)
+                    return HookResult.Continue;
+
+                var attacker = damageInfo.Attacker.Value;
+                if (attacker == null || !attacker.IsValid || attacker.Handle == victim.Handle)
+                    return HookResult.Continue;
+
+                // Only player-vs-player damage is relevant for friendly fire
+                if (!"player".Equals(attacker.DesignerName))
+                    return HookResult.Continue;
+
+                var attackerPawn = attacker.As<CCSPlayerPawn>();
+                if (attackerPawn.TeamNum != victim.TeamNum)
+                    return HookResult.Continue;
+
+                string inflictor = damageInfo.Inflictor.Value?.DesignerName ?? "";
+                if (enableDmgInflictors.Contains(inflictor))
                 {
-                    var victim = hook.GetParam<CEntityInstance>(0);
-                    var damageInfo = hook.GetParam<CTakeDamageInfo>(1);
-
-                    string inflictor = damageInfo.Inflictor.Value.DesignerName ?? "";
-                    var attackPlayer = new CCSPlayerPawn(damageInfo.Attacker.Value.Handle);
-                    var playerTakenDmg = new CCSPlayerController(victim.Handle);
-                    
-                    //Check if friendly fire
-                    if (attackPlayer.TeamNum == playerTakenDmg.TeamNum && "player".Equals(victim.DesignerName))
-                    {
-
-                        if (enableDmgInflictors.Contains(inflictor))
-                        {
-                            isSlayCommand = false;
-                            return HookResult.Continue;
-                        }
-                        return HookResult.Handled;
-                    }
+                    isSlayCommand = false;
                     return HookResult.Continue;
                 }
-                catch (Exception ex)
-                {
-                    Logger.LogError("{@error}", ex);
-                }
-                return HookResult.Continue;
+                return HookResult.Handled;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error in OnPlayerTakeDamagePre");
             }
             return HookResult.Continue;
         }
